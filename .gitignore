@@ -13,3 +13,8 @@ dist/
 .env
 *.log
 .data_cache/
+
+# 本地法律文件，不入库
+license_agreement_raw.pdf
+charting_library_license*.pdf
+fill_license.py

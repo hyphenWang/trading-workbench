@@ -4,7 +4,7 @@ import {
   type IChartApi, type UTCTimestamp,
 } from 'lightweight-charts'
 import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { api, type BacktestResult, type StrategySpec } from '../api'
+import { api, type BacktestResult, type OptimizeResult, type StrategySpec } from '../api'
 import { backendAvailable } from '../demo'
 import { useWorkbench } from '../stores/workbench'
 
@@ -42,6 +42,14 @@ const PCT_METRICS = new Set([
 const equityEl = ref<HTMLElement | null>(null)
 let equityChart: IChartApi | null = null
 
+// ---- 参数寻优 (Walk-Forward) ----
+const gridText = reactive<Record<string, string>>({})
+const trainBars = ref(500)
+const testBars = ref(250)
+const optLoading = ref(false)
+const optError = ref('')
+const optResult = ref<OptimizeResult | null>(null)
+
 onMounted(async () => {
   if (await backendAvailable()) {
     const resp = await api.strategies()
@@ -55,7 +63,18 @@ function selectStrategy(name: string) {
   selected.value = name
   const spec = strategies.value.find((s) => s.name === name)
   for (const k of Object.keys(params)) delete params[k]
-  for (const p of spec?.params ?? []) params[p.key] = p.default
+  for (const k of Object.keys(gridText)) delete gridText[k]
+  for (const p of spec?.params ?? []) {
+    params[p.key] = p.default
+    const d = Number(p.default) || 1
+    const vals =
+      p.type === 'int'
+        ? [Math.max(2, Math.round(d / 2)), d, d * 2]
+        : [+(d / 2).toFixed(2), d, +(d * 2).toFixed(2)]
+    gridText[p.key] = vals.join(', ')
+  }
+  optResult.value = null
+  optError.value = ''
 }
 
 async function run() {
@@ -110,6 +129,54 @@ function cls(v: number | null | undefined): string {
   return v > 0 ? 'pos' : v < 0 ? 'neg' : ''
 }
 
+async function runOptimize() {
+  if (demoMode.value) {
+    optError.value = '演示模式不支持寻优：请在本地启动后端后刷新页面。'
+    return
+  }
+  const grid: Record<string, number[]> = {}
+  for (const p of strategies.value.find((s) => s.name === selected.value)?.params ?? []) {
+    const vals = [...new Set(
+      (gridText[p.key] ?? '')
+        .split(/[,，\s]+/)
+        .map((s) => Number(s))
+        .filter((v) => Number.isFinite(v) && v > 0),
+    )]
+    if (!vals.length) {
+      optError.value = `请填写「${p.label}」的参数网格（逗号分隔，如 10, 20, 30）`
+      return
+    }
+    grid[p.key] = vals
+  }
+  optLoading.value = true
+  optError.value = ''
+  optResult.value = null
+  try {
+    optResult.value = await api.optimize({
+      symbol: store.symbol,
+      interval: store.resolution,
+      strategy: selected.value,
+      param_grid: grid,
+      train_bars: trainBars.value,
+      test_bars: testBars.value,
+      fee: feePct.value / 100,
+      slippage: slipPct.value / 100,
+      allow_short: allowShort.value,
+    })
+  } catch (e) {
+    optError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    optLoading.value = false
+  }
+}
+
+function overfitHint(ratio: number | null): string {
+  if (ratio == null) return '过拟合诊断：无法计算（训练期指标接近 0）'
+  if (ratio < 0.3) return `过拟合诊断：样本外仅为训练期的 ${Math.round(ratio * 100)}%，过拟合风险高，谨慎使用`
+  if (ratio < 0.7) return `过拟合诊断：样本外约为训练期的 ${Math.round(ratio * 100)}%，存在一定衰减，属常见现象`
+  return `过拟合诊断：样本外保持了训练期 ${Math.round(ratio * 100)}% 的水平，参数稳健性较好`
+}
+
 function fmtDate(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10)
 }
@@ -157,6 +224,66 @@ onBeforeUnmount(() => equityChart?.remove())
         {{ loading ? '回测中...' : `回测 ${store.symbol} · ${store.resolution}` }}
       </button>
       <div v-if="error" style="color: var(--down); margin-top: 8px; font-size: 12px;">{{ error }}</div>
+      </template>
+    </div>
+
+    <div v-if="!demoMode">
+      <p class="section-title">参数寻优 (Walk-Forward)</p>
+      <p class="hint" style="margin: 0 0 8px;">
+        训练窗内网格搜索选最优参数 → 紧随其后的样本外测试窗验证，滚动推进；
+        汇总所有测试窗 = 无前视的样本外绩效。组合上限 64。
+      </p>
+      <div class="form-row" v-for="p in strategies.find((s) => s.name === selected)?.params ?? []" :key="'g-' + p.key">
+        <label>{{ p.label }} 网格</label>
+        <input v-model="gridText[p.key]" placeholder="如 10, 20, 30" />
+      </div>
+      <div class="form-row">
+        <label>训练窗口(根)</label>
+        <input type="number" min="150" step="50" v-model.number="trainBars" />
+      </div>
+      <div class="form-row">
+        <label>测试窗口(根)</label>
+        <input type="number" min="50" step="25" v-model.number="testBars" />
+      </div>
+      <button style="width: 100%; padding: 7px;" :disabled="optLoading" @click="runOptimize">
+        {{ optLoading ? '寻优中...' : '运行 Walk-Forward 寻优' }}
+      </button>
+      <div v-if="optError" style="color: var(--down); margin-top: 8px; font-size: 12px;">{{ optError }}</div>
+
+      <template v-if="optResult">
+        <p class="hint" style="margin: 10px 0 6px;">
+          共 {{ optResult.n_combos }} 组参数 × {{ optResult.n_windows }} 个滚动窗口（共 {{ optResult.bar_count }} 根K线）
+        </p>
+        <p class="hint" style="margin: 0 0 8px;">{{ overfitHint(optResult.overfit_ratio) }}</p>
+        <p class="section-title" style="margin-top: 10px;">样本外（OOS）汇总</p>
+        <div class="metric-grid">
+          <div v-for="(label, key) in METRIC_LABELS" :key="'o-' + key" class="metric">
+            <div class="label">{{ label }}</div>
+            <div class="value" :class="cls(optResult.oos[key] as number | null)">
+              {{ optResult.oos[key] ?? '—' }}{{ PCT_METRICS.has(key) && optResult.oos[key] != null ? '%' : '' }}
+            </div>
+          </div>
+        </div>
+        <p class="section-title" style="margin: 12px 0 6px;">各窗口明细</p>
+        <table class="trades-table">
+          <thead>
+            <tr><th>测试区间</th><th>最优参数</th><th>训练</th><th>样本外</th><th>收益</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="(w, i) in optResult.windows" :key="i">
+              <td>{{ fmtDate(w.test_from) }}~{{ fmtDate(w.test_to) }}</td>
+              <td style="text-align: left;">
+                {{ Object.entries(w.params).map(([k, v]) => `${k}=${v}`).join(' ') }}
+              </td>
+              <td>{{ w.train_metric }}</td>
+              <td :class="cls(w.test_metric)">{{ w.test_metric ?? '—' }}</td>
+              <td :class="cls(w.test_return_pct)">{{ w.test_return_pct.toFixed(1) }}%</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="hint" style="margin-top: 6px;">
+          表中"训练/样本外"列均为{{ '夏普比率' }}；样本外明显走弱即提示该参数在历史区间外可能失效。
+        </p>
       </template>
     </div>
 

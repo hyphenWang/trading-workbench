@@ -5,12 +5,14 @@ import { backendAvailable } from './demo'
 import SymbolSearch from './components/SymbolSearch.vue'
 import ChartView from './components/ChartView.vue'
 import BacktestPanel from './components/BacktestPanel.vue'
+import Watchlist from './components/Watchlist.vue'
 import { useWorkbench } from './stores/workbench'
 
 const store = useWorkbench()
 const demoMode = ref(false)
 
 onMounted(async () => {
+  store.initWatchlist()
   demoMode.value = !(await backendAvailable())
   if (demoMode.value) return // 演示模式：无后端，不建立实时连接
   socket.connect()
@@ -48,6 +50,7 @@ onMounted(async () => {
       在本地运行 `uv run uvicorn app.main:app` 并刷新，即可解锁全部市场与实时行情、回测。
     </div>
     <main class="main" :class="{ 'with-banner': demoMode }">
+      <Watchlist />
       <ChartView />
       <BacktestPanel />
     </main>

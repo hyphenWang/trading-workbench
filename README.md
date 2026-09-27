@@ -91,9 +91,12 @@ uv run python -m quant.cli --symbol CN:600519 --strategy bollinger_reversion
 ## 界面功能
 
 - 品种搜索（全市场统一搜索，如 `BTCUSDT`、`AAPL`、`600519`、`RB0`）
+- **自选列表**：左侧栏，本地持久化（localStorage），点击切换品种，60 秒自动刷新最新价与日涨跌
 - K 线 + 成交量，周期切换，向左滚动自动加载更早历史
 - 实时行情：订阅式推送（同一品种/周期只建立一条上游订阅，多图共享）
 - 策略回测面板：参数可调、绩效卡片、资金曲线、交易明细
+- **参数寻优 (Walk-Forward)**：训练窗网格搜索选参 → 样本外测试窗验证 → 滚动汇总，
+  自动输出过拟合诊断（样本外/训练期指标比），防止"调参调到历史上"
 
 ## 升级路径：切换 TradingView Charting Library
 
@@ -108,12 +111,13 @@ uv run python -m quant.cli --symbol CN:600519 --strategy bollinger_reversion
 
 ## 后续路线图（按优先级建议）
 
-1. **策略参数寻优**：网格/Walk-Forward，避免过拟合（可参考 tradingview-mcp 的思路）
-2. **自选列表 + 多图布局**：watchlist 存 localStorage
-3. **A股分钟级数据**与实时快照（东财 spot 接口轮询）
-4. **组合回测 / 风险管理模块**（仓位规则、多标的组合资金曲线）
-5. **AI 助手层**：接入 MCP（如 tradingview-mcp-server）做行情问答与策略研发助手
-6. **纸面交易（paper trading）**：实时信号 → 模拟撮合 → 持仓跟踪
+1. ~~策略参数寻优（Walk-Forward）~~ ✅ 已完成（`/api/optimize` + 回测面板）
+2. ~~自选列表~~ ✅ 已完成（localStorage 持久化）
+3. 多图布局 / 图表窗格拆分
+4. **A股分钟级数据**与实时快照（东财 spot 接口轮询）
+5. **组合回测 / 风险管理模块**（仓位规则、多标的组合资金曲线）
+6. **AI 助手层**：接入 MCP（如 tradingview-mcp-server）做行情问答与策略研发助手
+7. **纸面交易（paper trading）**：实时信号 → 模拟撮合 → 持仓跟踪
 
 ## 免责声明
 

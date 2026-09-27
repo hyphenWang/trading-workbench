@@ -12,6 +12,7 @@ from app.models import INTERVAL_MS, Bar
 from app.providers import get_provider, search_all
 from quant import engine as bt_engine
 from quant import metrics as bt_metrics
+from quant import optimize as bt_optimize
 from quant import strategies as bt_strategies
 
 router = APIRouter(prefix="/api")
@@ -203,3 +204,57 @@ async def api_backtest(req: BacktestRequest):
         raise HTTPException(400, str(e))
     except Exception as e:
         raise HTTPException(500, f"回测失败: {e}")
+
+
+class OptimizeRequest(BacktestRequest):
+    param_grid: dict[str, list[float]] = Field(default_factory=dict)
+    train_bars: int = Field(500, ge=150, le=5000)
+    test_bars: int = Field(250, ge=50, le=2000)
+    metric: str = "sharpe"
+
+
+@router.post("/optimize")
+async def api_optimize(req: OptimizeRequest):
+    """Walk-Forward 参数寻优：训练窗选参 -> 样本外测试 -> 过拟合诊断。"""
+    try:
+        provider = get_provider(req.symbol)
+        info = await provider.resolve(req.symbol)
+        end_ms = (
+            int(pd.Timestamp(req.end, tz="UTC").timestamp() * 1000)
+            if req.end
+            else int(time.time() * 1000)
+        )
+        start_ms = (
+            int(pd.Timestamp(req.start, tz="UTC").timestamp() * 1000)
+            if req.start
+            else end_ms - 5 * 365 * 86_400_000
+        )
+        bars = await provider.history(req.symbol, req.interval, start_ms, end_ms)
+        df = pd.DataFrame([b.model_dump() for b in bars])
+        if len(df) < req.train_bars + 2 * req.test_bars:
+            raise ValueError(
+                f"历史数据不足（{len(df)} 根），至少需要 训练+2×测试 = "
+                f"{req.train_bars + 2 * req.test_bars} 根"
+            )
+        # 网格参数类型规整
+        grid = {
+            k: [float(v) for v in vs] for k, vs in (req.param_grid or {}).items() if vs
+        }
+        result = bt_optimize.walk_forward(
+            df, info.market, req.strategy, grid,
+            train_bars=req.train_bars, test_bars=req.test_bars,
+            fee=req.fee, slippage=req.slippage, allow_short=req.allow_short,
+            initial_cash=req.initial_cash, size_pct=req.size_pct,
+            metric=req.metric,
+        )
+        result["symbol"] = req.symbol
+        result["interval"] = req.interval
+        result["strategy"] = req.strategy
+        result["bar_count"] = len(df)
+        return result
+    except KeyError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(500, f"寻优失败: {e or type(e).__name__}")

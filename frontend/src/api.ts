@@ -75,6 +75,33 @@ export interface BacktestResult {
   to: number
 }
 
+export interface OptimizeWindow {
+  train_from: number
+  train_to: number
+  test_from: number
+  test_to: number
+  params: Record<string, number>
+  train_metric: number
+  test_metric: number | null
+  test_return_pct: number
+  test_sharpe: number
+  test_max_drawdown_pct: number
+  test_buy_hold_pct: number | null
+}
+
+export interface OptimizeResult {
+  symbol: string
+  interval: string
+  strategy: string
+  n_combos: number
+  n_windows: number
+  metric: string
+  overfit_ratio: number | null
+  oos: Record<string, number | null>
+  windows: OptimizeWindow[]
+  bar_count: number
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const resp = await fetch(url, init)
   if (!resp.ok) {
@@ -111,6 +138,13 @@ export const api = {
 
   backtest: (body: unknown) =>
     request<BacktestResult>('/api/backtest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
+  optimize: (body: unknown) =>
+    request<OptimizeResult>('/api/optimize', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
