@@ -144,7 +144,30 @@ input:focus, select:focus { border-color: var(--accent); }
 .watch-remove:hover { color: var(--down); }
 .watch-list li:hover .watch-remove { display: block; }
 
-.chart-area { position: relative; min-width: 0; }
+.engine-toggle { display: flex; gap: 4px; }
+
+.kline-toolbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 5px 10px;
+  background: rgba(30, 34, 45, 0.92);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(2px);
+}
+.kline-group { display: flex; align-items: center; gap: 4px; }
+.kline-group-label { color: var(--text-dim); font-size: 11px; margin-right: 2px; }
+.kline-container { position: absolute; inset: 34px 0 0 0; }
+
+.chart-area {
+  position: relative;
+  min-width: 0;
+}
 .chart-container { position: absolute; inset: 0; }
 .chart-error {
   position: absolute; top: 12px; left: 12px; z-index: 10;

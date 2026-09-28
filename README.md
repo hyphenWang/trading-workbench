@@ -92,22 +92,23 @@ uv run python -m quant.cli --symbol CN:600519 --strategy bollinger_reversion
 
 - 品种搜索（全市场统一搜索，如 `BTCUSDT`、`AAPL`、`600519`、`RB0`）
 - **自选列表**：左侧栏，本地持久化（localStorage），点击切换品种，60 秒自动刷新最新价与日涨跌
-- K 线 + 成交量，周期切换，向左滚动自动加载更早历史
+- **双图表引擎可切换**：
+  - `轻量`：Lightweight Charts，极简看图
+  - `专业`：KLineChart（开源 Apache-2.0），画线工具（线段/射线/水平线/矩形/斐波那契/价格通道等）
+    + 内置指标（MA/EMA/BOLL/VOL/MACD/RSI/KDJ 一键叠加），向左滚动自动加载更早历史
 - 实时行情：订阅式推送（同一品种/周期只建立一条上游订阅，多图共享）
 - 策略回测面板：参数可调、绩效卡片、资金曲线、交易明细
 - **参数寻优 (Walk-Forward)**：训练窗网格搜索选参 → 样本外测试窗验证 → 滚动汇总，
   自动输出过拟合诊断（样本外/训练期指标比），防止"调参调到历史上"
 
-## 升级路径：切换 TradingView Charting Library
+## 关于 TradingView Charting Library（已结案）
 
-当前图表用的是开源的 **Lightweight Charts**。若你申请到了官方 Charting Library
-（免费，https://www.tradingview.com/charting-library-sign-up/ ，需 GitHub 账号）：
+Advanced Charts 官方免费授权**仅面向企业/商业用途**，明确排除学习、研究、个人项目
+（2026-09 申请实测被拒，官方回复建议个人使用 Lightweight Charts）。本项目的"专业"
+图表因此采用开源的 KLineChart，体验接近且无授权限制。
 
-1. 把官方包放进 `frontend/public/charting_library/`；
-2. 新写一个组件用 `new TradingView.widget({ datafeed, ... })` 挂载图表；
-3. `src/datafeed/datafeed.ts` 的接口形态与 TradingView Datafeed 规范一致
-   （`onReady / resolveSymbol / getBars / subscribeBars / unsubscribeBars`），
-   基本可以直接传入 widget，后端零改动。
+如将来以公司/产品身份重新申请（https://www.tradingview.com/advanced-charts/ ），
+Datafeed 层接口与 TradingView 规范同构，替换图表组件即可接入，数据层零改动。
 
 ## 后续路线图（按优先级建议）
 

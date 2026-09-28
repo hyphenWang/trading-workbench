@@ -4,6 +4,7 @@ import { socket } from './datafeed/socket'
 import { backendAvailable } from './demo'
 import SymbolSearch from './components/SymbolSearch.vue'
 import ChartView from './components/ChartView.vue'
+import KLineView from './components/KLineView.vue'
 import BacktestPanel from './components/BacktestPanel.vue'
 import Watchlist from './components/Watchlist.vue'
 import { useWorkbench } from './stores/workbench'
@@ -13,6 +14,7 @@ const demoMode = ref(false)
 
 onMounted(async () => {
   store.initWatchlist()
+  store.initChartEngine()
   demoMode.value = !(await backendAvailable())
   if (demoMode.value) return // 演示模式：无后端，不建立实时连接
   socket.connect()
@@ -33,6 +35,18 @@ onMounted(async () => {
           @click="store.setResolution(res)"
         >{{ res }}</button>
       </div>
+      <div class="engine-toggle">
+        <button
+          :class="{ active: store.chartEngine === 'lightweight' }"
+          title="轻量极简视图"
+          @click="store.setChartEngine('lightweight')"
+        >轻量</button>
+        <button
+          :class="{ active: store.chartEngine === 'kline' }"
+          title="专业视图：画线工具 + 内置指标 (KLineChart)"
+          @click="store.setChartEngine('kline')"
+        >专业</button>
+      </div>
       <div style="flex: 1"></div>
       <div
         v-if="!demoMode"
@@ -51,7 +65,8 @@ onMounted(async () => {
     </div>
     <main class="main" :class="{ 'with-banner': demoMode }">
       <Watchlist />
-      <ChartView />
+      <ChartView v-if="store.chartEngine === 'lightweight'" />
+      <KLineView v-else />
       <BacktestPanel />
     </main>
   </div>

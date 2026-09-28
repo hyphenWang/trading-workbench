@@ -7,6 +7,7 @@ export interface WatchItem {
 }
 
 const WATCH_KEY = 'wb.watchlist.v1'
+const ENGINE_KEY = 'wb.chartEngine.v1'
 
 const DEFAULT_WATCHLIST: WatchItem[] = [
   { symbol: 'BINANCE:BTCUSDT', name: 'BTCUSDT' },
@@ -24,6 +25,7 @@ export const useWorkbench = defineStore('workbench', {
     symbolInfo: null as SymbolInfo | null,
     wsStatus: 'connecting' as 'connecting' | 'connected' | 'disconnected',
     watchlist: [] as WatchItem[],
+    chartEngine: 'lightweight' as 'lightweight' | 'kline',
   }),
   actions: {
     setSymbol(symbol: string) {
@@ -31,6 +33,18 @@ export const useWorkbench = defineStore('workbench', {
     },
     setResolution(res: string) {
       this.resolution = res
+    },
+    initChartEngine() {
+      try {
+        const saved = localStorage.getItem(ENGINE_KEY)
+        if (saved === 'kline' || saved === 'lightweight') this.chartEngine = saved
+      } catch { /* ignore */ }
+    },
+    setChartEngine(engine: 'lightweight' | 'kline') {
+      this.chartEngine = engine
+      try {
+        localStorage.setItem(ENGINE_KEY, engine)
+      } catch { /* ignore */ }
     },
     initWatchlist() {
       try {
