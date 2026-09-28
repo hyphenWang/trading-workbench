@@ -24,6 +24,7 @@ let uid = ''
 let lastBars: Bar[] = []
 let currentResolution = '1d'
 let el: HTMLElement | null = null
+let switchSeq = 0 // 每次切换品种/周期递增，丢弃过期异步加载的结果
 
 const RESOLUTION_PERIOD: Record<string, Period> = {
   '1m': { type: 'minute', span: 1 },
@@ -61,31 +62,68 @@ const DRAW_TOOLS = [
 ].filter((t) => getSupportedOverlays().includes(t.name))
 
 // ---------- v10 DataLoader：对接现有 datafeed ----------
+// 注意 v10 语义（与 v9 相反）：
+//   backward = 用户滚过"最新"一端 → 加载"更新"的 bar（追加到尾部），timestamp 为最后一根
+//   forward  = 用户滚过"最旧"一端 → 加载"更旧"的 bar（前插到头部），timestamp 为第一根
 
 async function getBarsImpl({ type, timestamp, callback }: DataLoaderGetBarsParams) {
   const info = infoRef.value
+  const __log = (o: unknown) => {
+    if (import.meta.env.DEV) {
+      const log = (window as unknown as Record<string, unknown[]>).__klog || []
+      log.push(o)
+      ;(window as unknown as Record<string, unknown[]>).__klog = log
+    }
+  }
+  __log({ type, ts: timestamp ? new Date(timestamp).toISOString().slice(0, 10) : null })
   if (!info) {
     callback([])
     return
   }
+  const mySeq = switchSeq
+  const chart = chartRef.value
   try {
-    const now = Math.floor(Date.now() / 1000)
     if (type === 'init') {
-      const { bars } = await datafeed.getBars(info, currentResolution, now - 600 * 86_400, now, 500)
+      // 首次加载：最近的 500 根
+      const fromSec = Math.floor(Date.now() / 1000) - 600 * 86_400
+      const toSec = Math.floor(Date.now() / 1000)
+      const { bars } = await datafeed.getBars(info, currentResolution, fromSec, toSec, 500)
+      __log({ init: 'ret', n: bars.length, from: new Date(bars[0]?.time ?? 0).toISOString().slice(0, 10) })
+      if (mySeq !== switchSeq) return
       lastBars = bars
       callback(bars.map(toKlcBar), bars.length >= 500)
-    } else if (type === 'backward') {
-      // timestamp = 当前最左一根的时间（毫秒），取更早的一段
+      return
+    }
+    if (type === 'backward') {
+      // 加载比 timestamp（= 当前最后一根）更新的 bar
+      const fromSec = Math.floor((timestamp ?? Date.now()) / 1000) + 1
+      const now = Math.floor(Date.now() / 1000)
+      if (fromSec > now) {
+        __log({ backward: 'empty-now' })
+        callback([], true)
+        return
+      }
+      const { bars } = await datafeed.getBars(info, currentResolution, fromSec, now, 500)
+      __log({ backward: 'ret', n: bars.length, from: new Date(bars[0]?.time ?? 0).toISOString().slice(0, 10) })
+      if (mySeq !== switchSeq) return
+      // 双重防御：只保留严格晚于 timestamp 的 bar，杜绝任何循环
+      const fresh = bars.filter((b) => b.time > (timestamp ?? 0))
+      if (fresh.length) lastBars = fresh
+      // 返回不足一页说明已到"现在"，暂停向右的增量加载（新 bar 由实时推送补充）
+      callback(fresh.map(toKlcBar), fresh.length >= 500)
+      return
+    }
+    if (type === 'forward') {
+      // 加载比 timestamp（= 当前第一根）更旧的 bar
       const toSec = Math.floor((timestamp ?? Date.now()) / 1000) - 1
       const { bars } = await datafeed.getBars(info, currentResolution, toSec - 500 * 86_400, toSec, 500)
+      __log({ forward: 'ret', n: bars.length, last: new Date(bars[bars.length - 1]?.time ?? 0).toISOString().slice(0, 10) })
+      if (mySeq !== switchSeq) return
       callback(bars.map(toKlcBar), bars.length >= 500)
-    } else if (type === 'forward') {
-      const fromSec = Math.floor((timestamp ?? now * 1000) / 1000) + 1
-      const { bars } = await datafeed.getBars(info, currentResolution, fromSec, now, 500)
-      callback(bars.map(toKlcBar), false)
-    } else {
-      callback([])
+      return
     }
+    __log({ type, skipped: true })
+    callback([])
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
     callback([], false)
@@ -95,6 +133,8 @@ async function getBarsImpl({ type, timestamp, callback }: DataLoaderGetBarsParam
 function subscribeBarImpl({ callback }: DataLoaderSubscribeBarParams) {
   const info = infoRef.value
   if (!info) return
+  // v10 每次init完成都会重新 subscribeBar：先退订旧 uid，避免 PubSub 里同一 id 重复挂回调
+  if (uid) datafeed.unsubscribeBars(uid)
   uid = `klc-${info.symbol}|${currentResolution}`
   datafeed.subscribeBars(
     info,
@@ -119,6 +159,7 @@ async function switchTo(symbol: string, resolution: string) {
   if (!chart) return
   error.value = ''
   try {
+    switchSeq += 1
     const info = await datafeed.resolveSymbol(symbol)
     infoRef.value = info
     if (uid) datafeed.unsubscribeBars(uid)
@@ -200,6 +241,9 @@ onMounted(() => {
     return
   }
   chartRef.value = chart
+  if (import.meta.env.DEV) {
+    ;(window as unknown as Record<string, unknown>).__klc = chart // 调试用
+  }
   chart.setDataLoader({
     getBars: getBarsImpl,
     subscribeBar: subscribeBarImpl,

@@ -59,11 +59,12 @@ async def api_history(
         end_ms = int(to * 1000)
         if backtest and from_ is not None:
             start_ms = int(from_ * 1000)
+        elif from_ is not None:
+            # 显式 from 是权威下界（例如"只要某时刻之后的增量"）
+            start_ms = int(from_ * 1000)
         else:
-            # countback 语义：至少给出截止 to 的 countback 根
+            # 未给 from：按 countback 语义向前推
             start_ms = int(to * 1000) - (countback + 5) * interval_ms
-            if from_ is not None:
-                start_ms = min(start_ms, int(from_ * 1000))
 
         cache_key = f"{symbol}|{interval}|{start_ms}|{end_ms}|{backtest}"
         cached = _history_cache.get(cache_key)
