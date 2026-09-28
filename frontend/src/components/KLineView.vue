@@ -4,7 +4,7 @@
  * 通过 v10 DataLoader 协议对接现有 datafeed（REST 历史 + PubSub 实时），
  * 提供画线工具与内置指标（MA/EMA/BOLL/VOL/MACD/RSI/KDJ）。
  */
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   dispose, getSupportedIndicators, getSupportedOverlays, init,
   type Chart, type KLineData, type Period,
@@ -162,6 +162,7 @@ async function switchTo(symbol: string, resolution: string) {
     switchSeq += 1
     const info = await datafeed.resolveSymbol(symbol)
     infoRef.value = info
+    store.symbolInfo = info // 同步到全局：头部周期按钮、回测面板都依赖它
     if (uid) datafeed.unsubscribeBars(uid)
     uid = ''
     currentResolution = info.supported_resolutions.includes(resolution)
@@ -272,6 +273,12 @@ defineExpose({
   async reload() {
     await switchTo(store.symbol, store.resolution)
   },
+})
+
+// 响应头部/搜索的品种与周期切换（switchTo 内部有回退保护，不会死循环）
+watch(() => store.symbol, () => switchTo(store.symbol, store.resolution))
+watch(() => store.resolution, (res) => {
+  if (res !== currentResolution) switchTo(store.symbol, res)
 })
 </script>
 
